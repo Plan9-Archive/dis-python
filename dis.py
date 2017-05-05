@@ -185,40 +185,6 @@ class Instruction:
         destination = self.address_mode & 0x07
         self.destination, self.destination_type = self.read_operand(destination, f)
     
-    def __repr__(self):
-    
-        try:
-            name = opcodes.names[self.opcode]
-        except IndexError:
-            name = hex(self.opcode)
-        
-        operands = []
-        comments = []
-        
-        for op, optype in (self.source, self.source_type), \
-                          (self.destination, self.destination_type):
-        
-            if optype == "LO(MP)":
-                operands.append(op)
-                comments.append(optype)
-            elif optype == "LO(FP)":
-                operands.append(op)
-                comments.append(optype)
-            elif optype == "$OP":
-                operands.append(op)
-                comments.append(optype)
-            elif optype == "SO(SO(MP))":
-                operands += list(op)
-                comments.append(optype)
-            elif optype == "SO(SO(FP))":
-                operands += list(op)
-                comments.append(optype)
-        
-        if comments:
-            return name + " " + ", ".join(map(str, operands)) + " ; " + ", ".join(comments)
-        else:
-            return name + " " + ", ".join(map(str, operands))
-    
     def read_operand(self, operand, f):
     
         if operand == 0x00:
@@ -241,3 +207,32 @@ class Instruction:
             operand_type = None
         
         return operand, operand_type
+    
+    def __repr__(self):
+    
+        try:
+            name = opcodes.names[self.opcode]
+        except IndexError:
+            name = hex(self.opcode)
+        
+        operands = []
+        comments = []
+        
+        for op, optype in (self.source, self.source_type), \
+                          (self.middle, self.middle_type), \
+                          (self.destination, self.destination_type):
+        
+            if optype in ["$SI", "SO(FP)", "SO(MP)"]:
+                operands.append(op)
+                comments.append(optype)
+            elif optype in ["LO(MP)", "LO(FP)", "$OP"]:
+                operands.append(op)
+                comments.append(optype)
+            elif optype in ["SO(SO(MP))", "SO(SO(FP))"]:
+                operands += list(op)
+                comments.append(optype)
+        
+        if comments:
+            return name + " " + ", ".join(map(hex, operands)) + " ; " + ", ".join(comments)
+        else:
+            return name + " " + ", ".join(map(hex, operands))

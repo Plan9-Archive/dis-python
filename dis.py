@@ -28,12 +28,11 @@ def _read(f, format):
     return unpack(format, f.read(size))[0]
 
 def read_B(f):
-
+    # byte, 8-bit unsigned
     return unpack(">B", f.read(1))[0]
 
 def read_OP(f):
 
-    at = f.tell()
     s = f.read(1)
     v = unpack(">B", s)[0]
     
@@ -62,24 +61,44 @@ def read_OP(f):
     return v
 
 def read_W(f):
-
-    return unpack(">i", f.read(4))
+    # 32-bit word
+    return unpack(">i", f.read(4))[0]
 
 def read_F(f):
+    # 64-bit float
+    return unpack(">d", f.read(8))[0]
 
-    return unpack(">d", f.read(8))
+def read_L(f):
+    # 64-bit big integer
+    # Signed or unsigned? Assume signed for now.
+    return unpack(">q", f.read(8))[0]
+
+def read_P(f):
+    # 32-bit pointer
+    return unpack(">I", f.read(4))[0]
+
+def read_C(f):
+    # UTF-8 encoded string
+    s = ""
+    while True:
+        c = f.read(1)
+        if c == "\x00":
+            break
+        s += c
+    
+    return s
 
 def read_SO(f):
 
-    return unpack(">H", f.read(2))
+    return unpack(">H", f.read(2))[0]
 
 def read_SI(f):
 
-    return unpack(">h", f.read(2))
+    return unpack(">h", f.read(2))[0]
 
 def read_LO(f):
 
-    return unpack(">i", f.read(4))
+    return unpack(">i", f.read(4))[0]
 
 
 class DisError(Exception):
@@ -130,16 +149,61 @@ class Dis:
         self.entry_type = read_OP(f)
         
         self.read_code(f)
+        self.read_types(f)
+        self.read_data(f)
+        
+        self.module_name = read_C(f)
+        
+        self.read_link(f)
     
     def read_code(self, f):
     
         self.code = []
-        
         i = 0
-        while i < self.code_size:
         
+        while i < self.code_size:
             self.code.append(Instruction(f))
             i += 1
+    
+    def read_types(self, f):
+    
+        self.types = []
+        i = 0
+        
+        while i < self.type_size:
+            self.types.append(Type(f))
+            i += 1
+    
+    def read_data(self, f):
+    
+        self.data = []
+        
+        while True:
+        
+            at = f.tell()
+            
+            code = read_B(f)
+            if code == 0:
+                break
+            
+            array_type = code >> 4
+            if not 1 <= array_type <= 8:
+                raise self.error("Unknown type in data item at 0x%x" % at)
+            
+            self.data.append(Data(f, code, array_type))
+    
+    def read_link(self, f):
+    
+        self.link = []
+        i = 0
+        
+        while i < self.link_size:
+            self.link.append(Link(f))
+            i += 1
+    
+    def list(self):
+    
+        print "\n".join(map(str, self.code))
 
 
 class RuntimeFlag:
@@ -165,19 +229,7 @@ class Instruction:
         self.address_mode = read_B(f)
         
         middle = self.address_mode & 0xc0
-        
-        if middle == 0x40:
-            self.middle = read_OP(f)
-            self.middle_type = "$SI"
-        elif middle == 0x80:
-            self.middle = read_OP(f)
-            self.middle_type = "SO(FP)"
-        elif middle == 0xc0:
-            self.middle = read_OP(f)
-            self.middle_type = "SO(MP)"
-        else:
-            self.middle = None
-            self.middle_type = None
+        self.middle, self.middle_type = self.read_middle_operand(middle, f)
         
         source = (self.address_mode & 0x38) >> 3
         self.source, self.source_type = self.read_operand(source, f)
@@ -187,6 +239,9 @@ class Instruction:
     
     def read_operand(self, operand, f):
     
+        # Since we shift the address flags for the source operand, we can
+        # check both source and destination operands using the same values.
+        
         if operand == 0x00:
             operand = read_OP(f)
             operand_type = "LO(MP)"
@@ -208,6 +263,25 @@ class Instruction:
         
         return operand, operand_type
     
+    def read_middle_operand(self, operand, f):
+    
+        # The middle operand bits are not shifted.
+        
+        if operand == 0x40:
+            operand = read_OP(f)
+            operand_type = "$SI"
+        elif operand == 0x80:
+            operand = read_OP(f)
+            operand_type = "SO(FP)"
+        elif operand == 0xc0:
+            operand = read_OP(f)
+            operand_type = "SO(MP)"
+        else:
+            operand = None
+            operand_type = None
+        
+        return operand, operand_type
+    
     def __repr__(self):
     
         try:
@@ -222,17 +296,119 @@ class Instruction:
                           (self.middle, self.middle_type), \
                           (self.destination, self.destination_type):
         
-            if optype in ["$SI", "SO(FP)", "SO(MP)"]:
-                operands.append(op)
-                comments.append(optype)
-            elif optype in ["LO(MP)", "LO(FP)", "$OP"]:
-                operands.append(op)
-                comments.append(optype)
-            elif optype in ["SO(SO(MP))", "SO(SO(FP))"]:
-                operands += list(op)
-                comments.append(optype)
+            if optype == "$SI":
+                operands.append("$%s" % op)
+            elif optype == "SO(FP)":
+                operands.append("%i(fp)" % op)
+            elif optype == "SO(MP)":
+                operands.append("%i(mp)" % op)
+            elif optype == "LO(MP)":
+                operands.append("%i(mp)" % op)
+            elif optype == "LO(FP)":
+                operands.append("%i(fp)" % op)
+            elif optype == "$OP":
+                operands.append("$%s" % op)
+            elif optype == "SO(SO(MP))":
+                operands.append("%i(%i(mp))" % op)
+            elif optype == "SO(SO(FP))":
+                operands.append("%i(%i(fp))" % op)
         
-        if comments:
-            return name + " " + ", ".join(map(hex, operands)) + " ; " + ", ".join(comments)
+        return name + " " + ", ".join(operands)
+
+
+class Type:
+
+    def __init__(self, f):
+    
+        self.desc_number = read_OP(f)
+        self.size = read_OP(f)
+        self.number_ptrs = read_OP(f)
+        self.array = f.read(self.number_ptrs)
+    
+    def is_pointer(self, address):
+    
+        # Convert the address of a word to a bit offset in the array.
+        bit = address / 4
+        # Extract the byte containing the bit we want to check.
+        byte = self.array[bit / 8]
+        # Check whether the bit is 1 or 0, returning True for 1 and False for 0.
+        mask = 1 << (bit % 8)
+        return (ord(byte) & mask) != 0
+
+
+class Data:
+
+    array_types = ["Invalid", "8-bit byte", "32-bit word",
+                   "UTF-8 encoded string", "64-bit float", "Array",
+                   "Set array address", "Restore load address"]
+    
+    def __init__(self, f, code, array_type):
+    
+        self.code = code
+        self.count = code & 0x0f
+        
+        if self.count == 0:
+            self.count = read_OP(f)
+        
+        self.offset = read_OP(f)
+        self.array_type = array_type
+        
+        self.array = []
+        base = 0
+        i = 0
+        while i < self.count:
+        
+            if array_type == 1:
+                # 8-bit byte
+                self.array.append(read_B(f))
+            elif array_type == 2:
+                # 32-bit word
+                self.array.append(read_W(f))
+            elif array_type == 3:
+                # UTF-8 encoded string (each item is a character)
+                self.array.append(f.read(1))
+            elif array_type == 4:
+                # 64-bit float
+                self.array.append(read_F(f))
+            elif array_type == 5:
+                # Array
+                index = _read(f, ">I")
+                length = _read(f, ">I")
+                print "Array", index, length, self.count
+                #self.array.append(read_F(f))
+            elif array_type == 6:
+                # Set array address
+                index = _read(f, ">I")
+                print "Set array address", index, self.count
+                #self.array.append(read_F(f))
+            elif array_type == 7:
+                # Restore load address
+                print "Restore load address"
+                #self.array.append(read_F(f))
+            elif array_type == 8:
+                # 64-bit integer
+                self.array.append(read_L(f))
+            
+            i += 1
+    
+    def data(self):
+    
+        if self.array_type == 3:
+            return "".join(self.array)
         else:
-            return name + " " + ", ".join(map(hex, operands))
+            return self.array
+    
+    def __repr__(self):
+    
+        return "<%s.%s (%s) %s>" % (self.__module__, self.__class__.__name__,
+            self.array_types[self.array_type], repr(self.data()))
+
+
+class Link:
+
+    def __init__(self, f):
+    
+        self.pc = read_OP(f)
+        self.desc_number = read_OP(f)
+        self.sig = read_W(f)
+        self.name = read_C(f)

@@ -177,6 +177,9 @@ class Dis:
     def read_data(self, f):
     
         self.data = []
+        addresses = []
+        base = 0
+        offset = 0
         
         while True:
         
@@ -186,11 +189,35 @@ class Dis:
             if code == 0:
                 break
             
+            count = code & 0x0f
             array_type = code >> 4
+            
+            if count == 0:
+                count = read_OP(f)
+            
+            offset = read_OP(f)
+            
             if not 1 <= array_type <= 8:
                 raise self.error("Unknown type in data item at 0x%x" % at)
             
-            self.data.append(Data(f, code, array_type))
+            elif array_type == 5:
+                # Array
+                type_index = _read(f, ">I")
+                length = _read(f, ">I")
+                type_ = self.types[type_index]
+                #print "Array", type_, type_.size, length
+            elif array_type == 6:
+                # Set array address
+                index = _read(f, ">I")
+                #print "Set array address", index, "(offset=%i)" % offset
+                addresses.append(base)
+                base = offset + index
+            elif array_type == 7:
+                # Restore load address
+                #print "Restore load address"
+                base = addresses.pop()
+            else:
+                self.data.append(Data(f, code, count, base + offset, array_type))
     
     def read_link(self, f):
     
@@ -203,7 +230,10 @@ class Dis:
     
     def list(self):
     
-        print "\n".join(map(str, self.code))
+        address = 0
+        for ins in self.code:
+            print hex(address), str(ins)
+            address += ins.size
 
 
 class RuntimeFlag:
@@ -225,6 +255,8 @@ class Instruction:
 
     def __init__(self, f):
     
+        self.start = f.tell()
+        
         self.opcode = read_B(f)
         self.address_mode = read_B(f)
         
@@ -236,6 +268,8 @@ class Instruction:
         
         destination = self.address_mode & 0x07
         self.destination, self.destination_type = self.read_operand(destination, f)
+        
+        self.size = f.tell() - self.start
     
     def read_operand(self, operand, f):
     
@@ -251,6 +285,9 @@ class Instruction:
         elif operand == 0x02:
             operand = read_OP(f)
             operand_type = "$OP"
+        
+        # No operand for 0x03.
+        
         elif operand == 0x04:
             operand = (read_OP(f), read_OP(f))
             operand_type = "SO(SO(MP))"
@@ -297,7 +334,7 @@ class Instruction:
                           (self.destination, self.destination_type):
         
             if optype == "$SI":
-                operands.append("$%s" % op)
+                operands.append("$%x" % op)
             elif optype == "SO(FP)":
                 operands.append("%i(fp)" % op)
             elif optype == "SO(MP)":
@@ -307,7 +344,7 @@ class Instruction:
             elif optype == "LO(FP)":
                 operands.append("%i(fp)" % op)
             elif optype == "$OP":
-                operands.append("$%s" % op)
+                operands.append("$%x" % op)
             elif optype == "SO(SO(MP))":
                 operands.append("%i(%i(mp))" % op)
             elif optype == "SO(SO(FP))":
@@ -327,6 +364,9 @@ class Type:
     
     def is_pointer(self, address):
     
+        # Each bit in the array represents a word in the type. If the bit is 1
+        # then the word contains a pointer.
+        
         # Convert the address of a word to a bit offset in the array.
         bit = address / 4
         # Extract the byte containing the bit we want to check.
@@ -342,21 +382,17 @@ class Data:
                    "UTF-8 encoded string", "64-bit float", "Array",
                    "Set array address", "Restore load address"]
     
-    def __init__(self, f, code, array_type):
+    def __init__(self, f, code, count, address, array_type):
     
         self.code = code
-        self.count = code & 0x0f
-        
-        if self.count == 0:
-            self.count = read_OP(f)
-        
-        self.offset = read_OP(f)
+        self.count = count
+        self.address = address
         self.array_type = array_type
         
         self.array = []
         base = 0
         i = 0
-        while i < self.count:
+        while i < count:
         
             if array_type == 1:
                 # 8-bit byte
@@ -370,21 +406,6 @@ class Data:
             elif array_type == 4:
                 # 64-bit float
                 self.array.append(read_F(f))
-            elif array_type == 5:
-                # Array
-                index = _read(f, ">I")
-                length = _read(f, ">I")
-                print "Array", index, length, self.count
-                #self.array.append(read_F(f))
-            elif array_type == 6:
-                # Set array address
-                index = _read(f, ">I")
-                print "Set array address", index, self.count
-                #self.array.append(read_F(f))
-            elif array_type == 7:
-                # Restore load address
-                print "Restore load address"
-                #self.array.append(read_F(f))
             elif array_type == 8:
                 # 64-bit integer
                 self.array.append(read_L(f))

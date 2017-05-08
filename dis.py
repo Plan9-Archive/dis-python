@@ -18,87 +18,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from struct import calcsize, pack, unpack
 
 import opcodes
+from utils import _read, read_B, read_C, read_OP, read_F, read_L, read_P, \
+                  read_W
 
 XMAGIC = 0x0c8030
 SMAGIC = 0x0e1722
-
-def _read(f, format):
-
-    size = calcsize(format)
-    return unpack(format, f.read(size))[0]
-
-def read_B(f):
-    # byte, 8-bit unsigned
-    return unpack(">B", f.read(1))[0]
-
-def read_OP(f):
-
-    s = f.read(1)
-    v = unpack(">B", s)[0]
-    
-    encoding = v & 0xc0
-    
-    if encoding == 0x80:
-        s += f.read(1)
-        v = unpack(">H", s)[0] & 0x3fff
-        if v >= 0x2000:
-            v = v - 0x4000
-    
-    elif encoding == 0xc0:
-        s += f.read(3)
-        v = unpack(">I", s)[0] & 0x3fffffff
-        if v >= 0x20000000:
-            v = v - 0x40000000
-    else:
-        # The top bit is clear, the next-to-top bit can be 0 or 1.
-        # -64 (0xc0) <= original value <= 63 (0x2f)
-        # -64 (0x40) <= encoded value  <= 63 (0x2f)
-        if encoding != 0:
-            # The next-to-top bit is set meaning that
-            # -64 <= original value <= -1
-            v = v - 0x80
-    
-    return v
-
-def read_W(f):
-    # 32-bit word
-    return unpack(">i", f.read(4))[0]
-
-def read_F(f):
-    # 64-bit float
-    return unpack(">d", f.read(8))[0]
-
-def read_L(f):
-    # 64-bit big integer
-    # Signed or unsigned? Assume signed for now.
-    return unpack(">q", f.read(8))[0]
-
-def read_P(f):
-    # 32-bit pointer
-    return unpack(">I", f.read(4))[0]
-
-def read_C(f):
-    # UTF-8 encoded string
-    s = ""
-    while True:
-        c = f.read(1)
-        if c == "\x00":
-            break
-        s += c
-    
-    return s
-
-def read_SO(f):
-
-    return unpack(">H", f.read(2))[0]
-
-def read_SI(f):
-
-    return unpack(">h", f.read(2))[0]
-
-def read_LO(f):
-
-    return unpack(">i", f.read(4))[0]
 
 
 class DisError(Exception):
@@ -167,7 +91,7 @@ class Dis:
         i = 0
         
         while i < self.code_size:
-            self.code.append(Instruction(f))
+            self.code.append(opcodes.Instruction().read(f))
             i += 1
     
     def read_types(self, f):
@@ -289,104 +213,6 @@ class RuntimeFlag:
     def contains(self, flags):
     
         return self.value & flags != 0
-
-
-class Instruction:
-
-    def __init__(self, f):
-    
-        self.opcode = read_B(f)
-        self.address_mode = read_B(f)
-        
-        middle = self.address_mode & 0xc0
-        self.middle, self.middle_type = self.read_middle_operand(middle, f)
-        
-        source = (self.address_mode & 0x38) >> 3
-        self.source, self.source_type = self.read_operand(source, f)
-        
-        destination = self.address_mode & 0x07
-        self.destination, self.destination_type = self.read_operand(destination, f)
-    
-    def read_operand(self, operand, f):
-    
-        # Since we shift the address flags for the source operand, we can
-        # check both source and destination operands using the same values.
-        
-        if operand == 0x00:
-            operand = read_OP(f)
-            operand_type = "LO(MP)"
-        elif operand == 0x01:
-            operand = read_OP(f)
-            operand_type = "LO(FP)"
-        elif operand == 0x02:
-            operand = read_OP(f)
-            operand_type = "$OP"
-        
-        # No operand for 0x03.
-        
-        elif operand == 0x04:
-            operand = (read_OP(f), read_OP(f))
-            operand_type = "SO(SO(MP))"
-        elif operand == 0x05:
-            operand = (read_OP(f), read_OP(f))
-            operand_type = "SO(SO(FP))"
-        else:
-            operand = None
-            operand_type = None
-        
-        return operand, operand_type
-    
-    def read_middle_operand(self, operand, f):
-    
-        # The middle operand bits are not shifted.
-        
-        if operand == 0x40:
-            operand = read_OP(f)
-            operand_type = "$SI"
-        elif operand == 0x80:
-            operand = read_OP(f)
-            operand_type = "SO(FP)"
-        elif operand == 0xc0:
-            operand = read_OP(f)
-            operand_type = "SO(MP)"
-        else:
-            operand = None
-            operand_type = None
-        
-        return operand, operand_type
-    
-    def __repr__(self):
-    
-        try:
-            name = opcodes.names[self.opcode]
-        except IndexError:
-            name = hex(self.opcode)
-        
-        operands = []
-        comments = []
-        
-        for op, optype in (self.source, self.source_type), \
-                          (self.middle, self.middle_type), \
-                          (self.destination, self.destination_type):
-        
-            if optype == "$SI":
-                operands.append("$%x" % op)
-            elif optype == "SO(FP)":
-                operands.append("%i(fp)" % op)
-            elif optype == "SO(MP)":
-                operands.append("%i(mp)" % op)
-            elif optype == "LO(MP)":
-                operands.append("%i(mp)" % op)
-            elif optype == "LO(FP)":
-                operands.append("%i(fp)" % op)
-            elif optype == "$OP":
-                operands.append("$%x" % op)
-            elif optype == "SO(SO(MP))":
-                operands.append("%i(%i(mp))" % op)
-            elif optype == "SO(SO(FP))":
-                operands.append("%i(%i(fp))" % op)
-        
-        return name + " " + ", ".join(operands)
 
 
 class Type:

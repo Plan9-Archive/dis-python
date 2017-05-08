@@ -155,6 +155,11 @@ class Dis:
         self.module_name = read_C(f)
         
         self.read_link(f)
+        
+        if self.runtime_flag.contains(RuntimeFlag.HASLDT):
+            self.read_ldt(f)
+        
+        self.path = read_C(f)
     
     def read_code(self, f):
     
@@ -176,10 +181,15 @@ class Dis:
     
     def read_data(self, f):
     
-        self.data = []
+        # Use a dictionary to map pointers in the module's data area to items.
+        self.data = {}
+        
+        # Maintain a list of individual data items for easy inspection.
+        self.data_items = []
+        
+        # Use a list as a load address stack with an initial base address of 0.
         addresses = []
         base = 0
-        offset = 0
         
         while True:
         
@@ -217,7 +227,12 @@ class Dis:
                 #print "Restore load address"
                 base = addresses.pop()
             else:
-                self.data.append(Data(f, code, count, base + offset, array_type))
+                address = base + offset
+                item = Data(f, code, count, address, array_type)
+                self.data_items.append(item)
+                if address in self.data:
+                    print "Overwriting existing data item at %x." % address
+                self.data[address] = item
     
     def read_link(self, f):
     
@@ -227,6 +242,28 @@ class Dis:
         while i < self.link_size:
             self.link.append(Link(f))
             i += 1
+    
+    def read_ldt(self, f):
+    
+        self.ldt = []
+        
+        # The Limbo compiler seems to include the number of initialised globals.
+        self.initialised_globals = read_OP(f)
+        
+        # There seems to be a collection of sequences. Each sequence starts
+        # with a number and is followed by that number of definitions.
+        while True:
+        
+            # Read the number of definitions, stopping only when 0 is found.
+            value = read_OP(f)
+            if value == 0:
+                break
+            
+            i = 0
+            while i < value:
+            
+                self.ldt.append(LDT(f))
+                i += 1
     
     def list(self):
     
@@ -246,7 +283,12 @@ class RuntimeFlag:
     HASLDT      = 0x40
     
     def __init__(self, value):
+    
         self.value = value
+    
+    def contains(self, flags):
+    
+        return self.value & flags != 0
 
 
 class Instruction:
@@ -406,6 +448,11 @@ class Data:
             
             i += 1
     
+    def __repr__(self):
+    
+        return "<%s.%s (%s) %s>" % (self.__module__, self.__class__.__name__,
+            self.array_types[self.array_type], repr(self.data()))
+    
     def data(self):
     
         if self.array_type == 3:
@@ -413,10 +460,27 @@ class Data:
         else:
             return self.array
     
-    def __repr__(self):
+    def encoded(self):
     
-        return "<%s.%s (%s) %s>" % (self.__module__, self.__class__.__name__,
-            self.array_types[self.array_type], repr(self.data()))
+        """Returns the contents of the array in the form they would take in the
+        module area on a big-endian system."""
+        
+        data = ""
+        
+        for item in self.array:
+        
+            if self.array_type == 1:
+                data += pack(">B", item)
+            elif self.array_type == 2:
+                data += pack(">i", item)
+            elif self.array_type == 3:
+                data += item
+            elif self.array_type == 4:
+                data += pack(">d", item)
+            elif self.array_type == 8:
+                data += pack(">q", item)
+        
+        return data
 
 
 class Link:
@@ -425,5 +489,13 @@ class Link:
     
         self.pc = read_OP(f)
         self.desc_number = read_OP(f)
-        self.sig = read_W(f)
+        self.sig = read_W(f)       # unsigned for hashes
+        self.name = read_C(f)
+
+
+class LDT:
+
+    def __init__(self, f):
+    
+        self.sig = _read(f, ">I")   # unsigned for hashes
         self.name = read_C(f)

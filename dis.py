@@ -230,10 +230,8 @@ class Dis:
     
     def list(self):
     
-        address = 0
-        for ins in self.code:
-            print hex(address), str(ins)
-            address += ins.size
+        for i, ins in enumerate(self.code):
+            print hex(i), str(ins)
 
 
 class RuntimeFlag:
@@ -255,8 +253,6 @@ class Instruction:
 
     def __init__(self, f):
     
-        self.start = f.tell()
-        
         self.opcode = read_B(f)
         self.address_mode = read_B(f)
         
@@ -268,8 +264,6 @@ class Instruction:
         
         destination = self.address_mode & 0x07
         self.destination, self.destination_type = self.read_operand(destination, f)
-        
-        self.size = f.tell() - self.start
     
     def read_operand(self, operand, f):
     

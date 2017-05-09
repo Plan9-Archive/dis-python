@@ -82,9 +82,9 @@ class Instruction:
         # No operand for 0x03.
         
         elif operand == 0x04:
-            operand = DoubleShortOffsetMP((read_OP(f), read_OP(f)), "SO(SO(MP))")
+            operand = DoubleShortOffsetMP(read_OP(f), read_OP(f), "SO(SO(MP))")
         elif operand == 0x05:
-            operand = DoubleShortOffsetFP((read_OP(f), read_OP(f)), "SO(SO(FP))")
+            operand = DoubleShortOffsetFP(read_OP(f), read_OP(f), "SO(SO(FP))")
         else:
             operand = NoOperand()
         
@@ -186,9 +186,18 @@ class ShortOffsetFP(ShortOffset):
 
 class DoubleShortOffset(Operand):
 
+    def __init__(self, offset0, offset1, annotation = None):
+    
+        self.offset0 = offset0
+        self.offset1 = offset1
+        self.annotation = annotation
+    
+    def __str__(self):
+        return self.str_pattern % (self.offset0, self.offset1)
+    
     def write(self, f):
-        write_OP(f, self.value[0] & 0xffff)
-        write_OP(f, self.value[1] & 0xffff)
+        write_OP(f, self.offset0 & 0xffff)
+        write_OP(f, self.offset1 & 0xffff)
 
 class DoubleShortOffsetMP(DoubleShortOffset):
     str_pattern = "%i(%i(mp))"
@@ -198,6 +207,14 @@ class DoubleShortOffsetFP(DoubleShortOffset):
     str_pattern = "%i(%i(fp))"
     address_mode = 0x05
 
+Imm = Immediate
+LOfp = LongOffsetFP
+LOmp = LongOffsetMP
+NoOp = NoOperand
+SOfp = ShortOffsetFP
+SOmp = ShortOffsetMP
+SOSOfp = DoubleShortOffsetFP
+SOSOmp = DoubleShortOffsetMP
 
 # Define the instructions and their opcode values.
 

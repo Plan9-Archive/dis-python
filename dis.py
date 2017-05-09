@@ -103,7 +103,7 @@ class Dis:
         i = 0
         
         while i < self.type_size:
-            self.types.append(Type(f))
+            self.types.append(Type().read(f))
             i += 1
     
     def read_data(self, f):
@@ -162,7 +162,8 @@ class Dis:
             else:
                 #print "Data", offset
                 address = base + offset
-                item = Data(f, code, count, offset, base, array_type, type_)
+                item = Data(base, offset, array_type, type_)
+                item.read(f, count)
                 self.data_items.append(item)
                 if address in self.data:
                     print "Overwriting existing data item at %x." % address
@@ -174,7 +175,7 @@ class Dis:
         i = 0
         
         while i < self.link_size:
-            self.link.append(Link(f))
+            self.link.append(Link().read(f))
             i += 1
     
     def read_ldt(self, f):
@@ -207,6 +208,7 @@ class Dis:
     
         # Write the header.
         self.code_size = len(self.code)
+        self.type_size = len(self.types)
         
         # Only unsigned files are currently supported.
         write_OP(f, XMAGIC)
@@ -328,12 +330,21 @@ class RuntimeFlag:
 
 class Type:
 
-    def __init__(self, f):
+    def __init__(self, desc_number = 0, size = 0, number_ptrs = 0, array = ""):
+    
+        self.desc_number = desc_number
+        self.size = size
+        self.number_ptrs = number_ptrs
+        self.array = array
+    
+    def read(self, f):
     
         self.desc_number = read_OP(f)
         self.size = read_OP(f)
         self.number_ptrs = read_OP(f)
         self.array = f.read(self.number_ptrs)
+        
+        return self
     
     def __repr__(self):
     
@@ -367,33 +378,36 @@ class Data:
                    "UTF-8 encoded string", "64-bit float", "Array",
                    "Set array address", "Restore load address"]
     
-    def __init__(self, f, code, count, offset, base, array_type, type_):
+    def __init__(self, base, offset, array_type, type_ = None, array = None):
     
-        self.code = code
-        self.count = count
-        self.offset = offset
         self.base = base
+        self.offset = offset
         self.array_type = array_type
         self.type_ = type_
-        
-        self.array = []
+        if not array:
+            self.array = []
+        else:
+            self.array = array
+    
+    def read(self, f, count):
+    
         base = 0
         i = 0
         while i < count:
         
-            if array_type == 1:
+            if self.array_type == 1:
                 # 8-bit byte
                 self.array.append(read_B(f))
-            elif array_type == 2:
+            elif self.array_type == 2:
                 # 32-bit word
                 self.array.append(read_W(f))
-            elif array_type == 3:
+            elif self.array_type == 3:
                 # UTF-8 encoded string (each item is a character)
                 self.array.append(f.read(1))
-            elif array_type == 4:
+            elif self.array_type == 4:
                 # 64-bit float
                 self.array.append(read_F(f))
-            elif array_type == 8:
+            elif self.array_type == 8:
                 # 64-bit integer
                 self.array.append(read_L(f))
             
@@ -441,10 +455,16 @@ class Data:
     
     def write(self, f):
     
-        write_B(f, self.code)
+        code = self.array_type << 4
+        count = len(self.array)
         
-        if self.count >= 16:
-            write_OP(f, self.count)
+        if count < 16:
+            code |= count
+        
+        write_B(f, code)
+        
+        if count >= 16:
+            write_OP(f, count)
         
         write_OP(f, self.offset)
         
@@ -464,7 +484,14 @@ class Data:
 
 class Link:
 
-    def __init__(self, f):
+    def __init__(self, pc = 0, desc_number = 0, sig = 0, name = ""):
+    
+        self.pc = pc
+        self.desc_number = desc_number
+        self.sig = sig
+        self.name = name
+    
+    def read(self, f):
     
         self.pc = read_OP(f)
         self.desc_number = read_OP(f)
@@ -486,7 +513,12 @@ class Link:
 
 class LDT:
 
-    def __init__(self, f):
+    def __init__(self, sig = 0, name = ""):
+    
+        self.sig = sig
+        self.name = name
+    
+    def read(self, f):
     
         self.sig = _read(f, ">I")   # unsigned for hashes
         self.name = read_C(f)

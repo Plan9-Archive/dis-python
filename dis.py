@@ -19,7 +19,9 @@ from struct import calcsize, pack, unpack
 
 import opcodes
 from utils import _read, read_B, read_C, read_OP, read_F, read_L, read_P, \
-                  read_W
+                  read_W, \
+                  _write, write_B, write_C, write_OP, write_F, write_L, \
+                  write_P, write_W
 
 XMAGIC = 0x0c8030
 SMAGIC = 0x0e1722
@@ -72,6 +74,7 @@ class Dis:
         self.entry_pc = read_OP(f)
         self.entry_type = read_OP(f)
         
+        # Read the other sections.
         self.read_code(f)
         self.read_types(f)
         self.read_data(f)
@@ -114,6 +117,7 @@ class Dis:
         # Use a list as a load address stack with an initial base address of 0.
         addresses = []
         base = 0
+        type_ = None
         
         while True:
         
@@ -139,20 +143,26 @@ class Dis:
                 type_index = _read(f, ">I")
                 length = _read(f, ">I")
                 type_ = self.types[type_index]
-                #print "Array", type_, type_.size, length
+                #print "Array", offset
+            
             elif array_type == 6:
-                # Set array address
+                # Set array index
                 index = _read(f, ">I")
-                #print "Set array address", index, "(offset=%i)" % offset
+                # Store the current base first.
                 addresses.append(base)
+                #print "Set", base, offset, index
                 base = offset + index
+            
             elif array_type == 7:
                 # Restore load address
-                #print "Restore load address"
                 base = addresses.pop()
+                type_ = None
+                #print "Restore", base, offset
+            
             else:
+                #print "Data", offset
                 address = base + offset
-                item = Data(f, code, count, address, array_type)
+                item = Data(f, code, count, offset, base, array_type, type_)
                 self.data_items.append(item)
                 if address in self.data:
                     print "Overwriting existing data item at %x." % address
@@ -183,11 +193,109 @@ class Dis:
             if value == 0:
                 break
             
+            sequence = []
+            
             i = 0
             while i < value:
             
-                self.ldt.append(LDT(f))
+                sequence.append(LDT(f))
                 i += 1
+            
+            self.ldt.append(sequence)
+    
+    def write(self, f):
+    
+        # Write the header.
+        self.code_size = len(self.code)
+        
+        # Only unsigned files are currently supported.
+        write_OP(f, XMAGIC)
+        
+        self.runtime_flag.write(f)
+        write_OP(f, self.stack_extent)
+        write_OP(f, self.code_size)
+        write_OP(f, self.data_size)
+        write_OP(f, self.type_size)
+        write_OP(f, self.link_size)
+        write_OP(f, self.entry_pc)
+        write_OP(f, self.entry_type)
+        
+        # Write the other sections.
+        self.write_code(f)
+        self.write_types(f)
+        self.write_data(f)
+        
+        write_C(f, self.module_name)
+        
+        self.write_link(f)
+        
+        if self.runtime_flag.contains(RuntimeFlag.HASLDT):
+            self.write_ldt(f)
+        
+        write_C(f, self.path)
+    
+    def write_code(self, f):
+    
+        for ins in self.code:
+            ins.write(f)
+    
+    def write_types(self, f):
+    
+        for type_ in self.types:
+            type_.write(f)
+    
+    def write_data(self, f):
+    
+        # Sort the dictionary items by address.
+        items = self.data.items()
+        items.sort()
+        
+        addresses = []
+        base = 0
+        
+        for address, item in items:
+        
+            if item.base != base:
+            
+                # Array
+                write_B(f, 0x51)                # use count=1 to save a word
+                write_OP(f, item.base - base)   # offset
+                _write(f, ">I", self.types.index(item.type_))
+                _write(f, ">I", len(item.data))
+                
+                # Set array address
+                write_B(f, 0x61)                # use count=1 to save a word
+                write_OP(f, item.base - base)   # offset
+                _write(f, ">I", 0)              # index
+            
+            item.write(f)
+            
+            if item.base != base:
+            
+                # Restore load address
+                write_B(f, 0x71)                # use count=1 to save a word
+                write_OP(f, 0)                  # offset
+                base = addresses.pop()
+        
+        write_OP(f, 0)
+    
+    def write_link(self, f):
+    
+        for link in self.link:
+            link.write(f)
+    
+    def write_ldt(self, f):
+    
+        write_OP(f, self.initialised_globals)
+        
+        for sequence in self.ldt:
+        
+            write_OP(f, len(sequence))
+            
+            for ldt in sequence:
+                ldt.write(f)
+        
+        write_OP(f, 0)
     
     def list(self):
     
@@ -213,6 +321,9 @@ class RuntimeFlag:
     def contains(self, flags):
     
         return self.value & flags != 0
+    
+    def write(self, f):
+        write_OP(f, self.value)
 
 
 class Type:
@@ -223,6 +334,11 @@ class Type:
         self.size = read_OP(f)
         self.number_ptrs = read_OP(f)
         self.array = f.read(self.number_ptrs)
+    
+    def __repr__(self):
+    
+        return "Type(desc=%i, size=%i, ptrs=%i)" % (self.desc_number,
+            self.size, self.number_ptrs)
     
     def is_pointer(self, address):
     
@@ -236,6 +352,13 @@ class Type:
         # Check whether the bit is 1 or 0, returning True for 1 and False for 0.
         mask = 1 << (bit % 8)
         return (ord(byte) & mask) != 0
+    
+    def write(self, f):
+    
+        write_OP(f, self.desc_number)
+        write_OP(f, self.size)
+        write_OP(f, self.number_ptrs)
+        f.write(self.array)
 
 
 class Data:
@@ -244,12 +367,14 @@ class Data:
                    "UTF-8 encoded string", "64-bit float", "Array",
                    "Set array address", "Restore load address"]
     
-    def __init__(self, f, code, count, address, array_type):
+    def __init__(self, f, code, count, offset, base, array_type, type_):
     
         self.code = code
         self.count = count
-        self.address = address
+        self.offset = offset
+        self.base = base
         self.array_type = array_type
+        self.type_ = type_
         
         self.array = []
         base = 0
@@ -276,8 +401,14 @@ class Data:
     
     def __repr__(self):
     
-        return "<%s.%s (%s) %s>" % (self.__module__, self.__class__.__name__,
-            self.array_types[self.array_type], repr(self.data()))
+        if self.type_:
+            return "Data(base=%i offset=%i raw='%s' type=%s data=%s>" % (
+                self.base, self.offset, self.array_types[self.array_type],
+                self.type_, repr(self.data()))
+        else:
+            return "Data(base=%i offset=%i raw='%s' data=%s>" % (
+                self.base, self.offset, self.array_types[self.array_type],
+                repr(self.data()))
     
     def data(self):
     
@@ -288,8 +419,8 @@ class Data:
     
     def encoded(self):
     
-        """Returns the contents of the array in the form they would take in the
-        module area on a big-endian system."""
+        """Returns the contents of the array in the form they would take if
+        serialised on a big-endian system."""
         
         data = ""
         
@@ -307,6 +438,28 @@ class Data:
                 data += pack(">q", item)
         
         return data
+    
+    def write(self, f):
+    
+        write_B(f, self.code)
+        
+        if self.count >= 16:
+            write_OP(f, self.count)
+        
+        write_OP(f, self.offset)
+        
+        for item in self.array:
+        
+            if self.array_type == 1:
+                write_B(f, item)
+            elif self.array_type == 2:
+                write_W(f, item)
+            elif self.array_type == 3:
+                f.write(item)
+            elif self.array_type == 4:
+                write_F(f, item)
+            elif self.array_type == 8:
+                write_L(f, item)
 
 
 class Link:
@@ -317,6 +470,18 @@ class Link:
         self.desc_number = read_OP(f)
         self.sig = read_W(f)       # unsigned for hashes
         self.name = read_C(f)
+    
+    def __repr__(self):
+    
+        return "Link(pc=%s, desc=%i, sig=%s, name='%s')" % (
+            hex(self.pc), self.desc_number, hex(self.sig), self.name)
+    
+    def write(self, f):
+    
+        write_OP(f, self.pc)
+        write_OP(f, self.desc_number)
+        write_W(f, self.sig)
+        write_C(f, self.name)
 
 
 class LDT:
@@ -325,3 +490,12 @@ class LDT:
     
         self.sig = _read(f, ">I")   # unsigned for hashes
         self.name = read_C(f)
+    
+    def __repr__(self):
+    
+        return "LDT(sig=0x%x, name='%s')" % (self.sig, self.name)
+    
+    def write(self, f):
+    
+        _write(f, ">I", self.sig)
+        write_C(f, self.name)

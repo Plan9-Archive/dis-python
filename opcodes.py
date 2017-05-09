@@ -21,34 +21,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from utils import read_B, read_OP, write_B, write_OP
 
-# Define string representations of the opcodes.
-
-instruction_names = [
-    "nop", "alt", "nbalt", "goto", "call", "frame", "spawn", "runt",
-    "load", "mcall", "mspawn", "mframe", "ret", "jmp", "case", "exit",
-    "new", "newa", "newcb", "newcw", "newcf", "newcp", "newcm", "newcmp",
-    "send", "recv", "consb", "consw", "consp", "consf", "consm", "consmp",
-    "headb", "headw", "headp", "headf", "headm", "headmp", "tail", "lea",
-    "indx", "movp", "movm", "movmp", "movb", "movw", "movf", "cvtbw",
-    "cvtwb", "cvtfw", "cvtwf", "cvtca", "cvtac", "cvtwc", "cvtcw", "cvtfc",
-    "cvtcf", "addb", "addw", "addf", "subb", "subw", "subf", "mulb",
-    "mulw", "mulf", "divb", "divw", "divf", "modw", "modb", "andb",
-    "andw", "orb", "orw", "xorb", "xorw", "shlb", "shlw", "shrb",
-    "shrw", "insc", "indc", "addc", "lenc", "lena", "lenl", "beqb",
-    "bneb", "bltb", "bleb", "bgtb", "bgeb", "beqw", "bnew", "bltw",
-    "blew", "bgtw", "bgew", "beqf", "bnef", "bltf", "blef", "bgtf",
-    "bgef", "beqc", "bnec", "bltc", "blec", "bgtc", "bgec", "slicea",
-    "slicela", "slicec", "indw", "indf", "indb", "negf", "movl", "addl",
-    "subl", "divl", "modl", "mull", "andl", "orl", "xorl", "shll",
-    "shrl", "bnel", "bltl", "blel", "bgtl", "bgel", "beql", "cvtlf",
-    "cvtfl", "cvtlw", "cvtwl", "cvtlc", "cvtcl", "headl", "consl", "newcl",
-    "casec", "indl", "movpc", "tcmp", "mnewz", "cvtrf", "cvtfr", "cvtws",
-    "cvtsw", "lsrw", "lsrl", "eclr", "newz", "newaz", "raise", "casel",
-    "mulx", "divx", "cvtxx", "mulx0", "divx0", "cvtxx0", "mulx1", "divx1",
-    "cvtxx1", "cvtfx", "cvtxf", "expw", "expl", "expf", "self"
-    ]
-
-
 class Instruction:
 
     def __init__(self):
@@ -60,19 +32,34 @@ class Instruction:
     
     def read(self, f):
     
-        self.opcode = read_B(f)
-        self.address_mode = read_B(f)
+        opcode = read_B(f)
+        class_ = instructions[opcode]
         
-        middle = self.address_mode & 0xc0
-        self.middle = self.read_middle_operand(middle, f)
+        address_mode = read_B(f)
         
-        source = (self.address_mode & 0x38) >> 3
-        self.source = self.read_operand(source, f)
+        middle = address_mode & 0xc0
+        middle = self.read_middle_operand(middle, f)
         
-        destination = self.address_mode & 0x07
-        self.destination = self.read_operand(destination, f)
+        source = (address_mode & 0x38) >> 3
+        source = self.read_operand(source, f)
         
-        return self
+        destination = address_mode & 0x07
+        destination = self.read_operand(destination, f)
+        
+        if issubclass(class_, Src):
+            return class_(source)
+        elif issubclass(class_, Src_Src):
+            return class_(source, middle)
+        elif issubclass(class_, Src_Dst):
+            return class_(source, destination)
+        elif issubclass(class_, Src_Src_Dst):
+            return class_(source, middle, destination)
+        elif issubclass(class_, Src_Src_Src):
+            return class_(source, middle, destination)
+        elif issubclass(class_, Dst):
+            return class_(destination)
+        else:
+            return class_()
     
     def set_address_mode(self):
     
@@ -130,7 +117,7 @@ class Instruction:
     def __repr__(self):
     
         try:
-            name = instruction_names[self.opcode]
+            name = self.__class__.__name__
         except IndexError:
             name = hex(self.opcode)
         
@@ -203,11 +190,11 @@ class DoubleShortOffset(Operand):
         write_OP(f, self.value[0] & 0xffff)
         write_OP(f, self.value[1] & 0xffff)
 
-class DoubleShortOffsetMP(Operand):
+class DoubleShortOffsetMP(DoubleShortOffset):
     str_pattern = "%i(%i(mp))"
     address_mode = 0x04
 
-class DoubleShortOffsetFP(Operand):
+class DoubleShortOffsetFP(DoubleShortOffset):
     str_pattern = "%i(%i(fp))"
     address_mode = 0x05
 
@@ -250,7 +237,7 @@ class Src_Src_Dst(Instruction):
         self.destination = dst
         self.set_address_mode()
 
-class Src_Src_src(Instruction):
+class Src_Src_Src(Instruction):
 
     def __init__(self, src1, src2, src3):
     
@@ -380,7 +367,7 @@ class exit(Instruction):    opcode = 0x0f
 class expf(Src_Src_Dst):    opcode = 0xad   # word word -> float (xec.c)
 class expl(Src_Src_Dst):    opcode = 0xac   # word long -> long (xec.c)
 class expw(Src_Src_Dst):    opcode = 0xab   # word word -> word (xec.c)
-class frame(Src_Src):       opcode = 0x05
+class frame(Src_Dst):       opcode = 0x05   # not src1, src2 as in documentation
 class goto(Src_Dst):        opcode = 0x03
 class headb(headx):         opcode = 0x20
 class headf(headx):         opcode = 0x23
@@ -404,7 +391,7 @@ class lenl(Src_Dst):        opcode = 0x56
 class load(Src_Src_Dst):    opcode = 0x08
 class lsrl(lsrx):           opcode = 0x9a
 class lsrw(lsrx):           opcode = 0x99
-class mcall(Src_Src_src):   opcode = 0x09
+class mcall(Src_Src_Src):   opcode = 0x09
 class mframe(Src_Src_Dst):  opcode = 0x0b
 class mnewz(Src_Src_Dst):   opcode = 0x94
 class modb(modx):           opcode = 0x46
@@ -418,7 +405,7 @@ class movmp(Src_Src_Dst):   opcode = 0x2b
 class movpc(Src_Dst):       opcode = 0x92
 class movp(Src_Dst):        opcode = 0x29
 class movw(movx):           opcode = 0x2d
-class mspawn(Src_Src_src):  opcode = 0x0a
+class mspawn(Src_Src_Src):  opcode = 0x0a
 class mulb(mulx_):          opcode = 0x3f
 class mulf(mulx_):          opcode = 0x41
 class mull(mulx_):          opcode = 0x7b
@@ -468,3 +455,30 @@ class tcmp(Src_Dst):        opcode = 0x93
 class xorb(xorx):           opcode = 0x4b
 class xorl(xorx):           opcode = 0x7e
 class xorw(xorx):           opcode = 0x4c
+
+# Define a list to map opcodes to instruction classes.
+
+instructions = [
+    nop, alt, nbalt, goto, call, frame, spawn, runt,
+    load, mcall, mspawn, mframe, ret, jmp, case, exit,
+    new, newa, newcb, newcw, newcf, newcp, newcm, newcmp,
+    send, recv, consb, consw, consp, consf, consm, consmp,
+    headb, headw, headp, headf, headm, headmp, tail, lea,
+    indx, movp, movm, movmp, movb, movw, movf, cvtbw,
+    cvtwb, cvtfw, cvtwf, cvtca, cvtac, cvtwc, cvtcw, cvtfc,
+    cvtcf, addb, addw, addf, subb, subw, subf, mulb,
+    mulw, mulf, divb, divw, divf, modw, modb, andb,
+    andw, orb, orw, xorb, xorw, shlb, shlw, shrb,
+    shrw, insc, indc, addc, lenc, lena, lenl, beqb,
+    bneb, bltb, bleb, bgtb, bgeb, beqw, bnew, bltw,
+    blew, bgtw, bgew, beqf, bnef, bltf, blef, bgtf,
+    bgef, beqc, bnec, bltc, blec, bgtc, bgec, slicea,
+    slicela, slicec, indw, indf, indb, negf, movl, addl,
+    subl, divl, modl, mull, andl, orl, xorl, shll,
+    shrl, bnel, bltl, blel, bgtl, bgel, beql, cvtlf,
+    cvtfl, cvtlw, cvtwl, cvtlc, cvtcl, headl, consl, newcl,
+    casec, indl, movpc, tcmp, mnewz, cvtrf, cvtfr, cvtws,
+    cvtsw, lsrw, lsrl, eclr, newz, newaz, raise_, casel,
+    mulx, divx, cvtxx, mulx0, divx0, cvtxx0, mulx1, divx1,
+    cvtxx1, cvtfx, cvtxf, expw, expl, expf, self
+    ]

@@ -15,6 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+import md5
 from struct import calcsize, pack, unpack
 
 def _read(f, format):
@@ -82,6 +83,71 @@ def read_C(f):
         s += c
     
     return s
+
+def _write(f, format, value):
+
+    f.write(pack(format, value))
+
+def write_B(f, value):
+    # byte, 8-bit unsigned
+    f.write(pack(">B", value))
+
+def write_OP(f, value):
+
+    if -64 <= value <= 63:
+        f.write(pack(">B", value))
+    
+    elif -8192 <= value <= 8191:
+        f.write(pack(">H", (value & 0x3fff) | 0x8000))
+    
+    elif -0x20000000 <= value <= 0x1f000000:
+        f.write(pack(">I", (value & 0x3fffffff) | 0xc0000000))
+    
+    else:
+        raise ValueError("Cannot encode %i as an OP." % value)
+
+def write_W(f, value):
+    # 32-bit word
+    f.write(pack(">i", value))
+
+def write_F(f, value):
+    # 64-bit float
+    f.write(pack(">d", value))
+
+def write_L(f, value):
+    # 64-bit big integer
+    # Signed or unsigned? Assume signed for now.
+    f.write(pack(">q", value))
+
+def write_P(f, value):
+    # 32-bit pointer
+    f.write(pack(">I", value))
+
+def write_C(f, value):
+    # UTF-8 encoded string
+    f.write(value)
+    f.write("\x00")
+
+# Higher level data handling
+
+def hash_signature(function_signature):
+
+    h = md5.md5(function_signature).hexdigest()
+    
+    # Convert each pair of hexadecimal digits to a byte value, resulting in
+    # sixteen values.
+    l = map(lambda x: int(h[x:x+2], 16), range(0, 32, 2))
+    
+    # Considering each four bytes as part of a word, combine each byte with the
+    # corresponding byte in the other three words using the XOR operator,
+    # shifting each value so that they can be combined using addition later.
+    values = []
+    for i in range(4):
+        values.append(reduce(lambda x, y: x ^ y, l[i::4]) << (i * 8))
+    
+    # Sum the values to produce a 32-bit value.
+    return sum(values)
+
 
 # Currently unused:
 

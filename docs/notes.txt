@@ -1,3 +1,7 @@
+Opcodes are defined in include/isa.h, limbo/optab.c and libinterp/xec.c.
+
+consc is documented but does not exist in the opcode definitions.
+
 Function signatures will be output by the Limbo compiler if you pass it the
 "-D S" debug option.
 

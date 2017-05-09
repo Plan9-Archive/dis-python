@@ -209,6 +209,7 @@ class Dis:
         # Write the header.
         self.code_size = len(self.code)
         self.type_size = len(self.types)
+        self.link_size = len(self.link)
         
         # Only unsigned files are currently supported.
         write_OP(f, XMAGIC)

@@ -16,9 +16,8 @@ if __name__ == "__main__":
     d.runtime_flag = dis.RuntimeFlag(dis.RuntimeFlag.HASLDT)
     d.stack_extent = 560
     d.data_size = 16
-    d.link_size = 1
     d.entry_pc = 0
-    d.entry_type = 2
+    d.entry_type = 2    # refers to Type 2
     
     d.code = [
         opcodes.load(LOmp(0), Imm(0), LOfp(44)),
@@ -41,18 +40,18 @@ if __name__ == "__main__":
     d.types = [
         dis.Type(0, 16, 1, "\xf0"),
         dis.Type(1, 40, 2, "\x00\x80"),
-        dis.Type(2, 56, 2, "\x00\xd0")
+        dis.Type(2, 56, 2, "\x00\xd0")  # stack frame type, entry type
         ]
     
     d.data = {
         #       code size
         0: dis.Data(0, 0, 0x03, array = "$Sys"),
         4: dis.Data(0, 4, 0x03, array = "%d\n"),
-        8: dis.Data(0, 8, 0x03, array = "Counting to 20...\n"),
+        8: dis.Data(0, 8, 0x03, array = "Counting...\n"),
         }
     
     d.module_name = "count"
-    d.link = [dis.Link(0, 2, 0x4244b354, "init")]
+    d.link = [dis.Link(0, 2, 0x4244b354, "init")]   # refers to Type 2
     d.initialised_globals = 1
     d.ldt = [[dis.LDT(0xac849033, "print")]]
     d.path = sys.argv[0]

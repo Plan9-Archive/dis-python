@@ -199,7 +199,7 @@ class Dis:
             i = 0
             while i < value:
             
-                sequence.append(LDT(f))
+                sequence.append(LDT().read(f))
                 i += 1
             
             self.ldt.append(sequence)

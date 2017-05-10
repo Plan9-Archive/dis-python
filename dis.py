@@ -21,7 +21,7 @@ import opcodes
 from utils import _read, read_B, read_C, read_OP, read_F, read_L, read_P, \
                   read_W, \
                   _write, write_B, write_C, write_OP, write_F, write_L, \
-                  write_P, write_W
+                  write_P, write_W, dbl_repr
 
 XMAGIC = 0x0c8030
 SMAGIC = 0x0e1722
@@ -85,6 +85,9 @@ class Dis:
         
         if self.runtime_flag.contains(RuntimeFlag.HASLDT):
             self.read_ldt(f)
+        
+        if self.runtime_flag.contains(RuntimeFlag.HASEXCEPT):
+            self.read_exceptions(f)
         
         self.path = read_C(f)
     
@@ -180,6 +183,8 @@ class Dis:
     
     def read_ldt(self, f):
     
+        # Described in the section about the load operand in the Dis Virtual
+        # Machine Specification.
         self.ldt = []
         
         # The Limbo compiler seems to include the number of initialised globals.
@@ -203,6 +208,24 @@ class Dis:
                 i += 1
             
             self.ldt.append(sequence)
+        
+        # Discard the dummy value that occurs after an empty set of LDTs.
+        if not self.ldt:
+            read_OP(f)
+    
+    def read_exceptions(self, f):
+    
+        self.exceptions = []
+        number = read_OP(f)
+        i = 0
+        
+        while i < number:
+        
+            self.exceptions.append(ExceptionInfo().read(f))
+            i += 1
+        
+        # Discard the dummy value that occurs after a set of exceptions.
+        read_OP(f)
     
     def write(self, f):
     
@@ -303,7 +326,60 @@ class Dis:
     def list(self):
     
         for i, ins in enumerate(self.code):
-            print hex(i), str(ins)
+            print hex(i) + ":", str(ins)
+        
+        print
+        print "entry %s, %i" % (hex(self.entry_pc), self.entry_type)
+        
+        for type_ in self.types:
+            print 'desc $0x%x, %i, "%s"' % (type_.desc_number, type_.size,
+                  "".join(map(lambda x: "%02x" % ord(x), type_.array)))
+        
+        print
+        print "var @mp, %i" % self.data_size
+        
+        items = self.data.items()
+        items.sort()
+        
+        for address, item in items:
+            if item.array_type == 3:
+                print 'string @mp+%i, %s' % (address, dbl_repr(item.data()))
+            else:
+                print "?",
+        
+        print
+        print "module", self.module_name
+        
+        for link in self.link:
+            print
+            print "link %s, %i, %s, %s" % (hex(link.pc), link.desc_number,
+                hex(link.sig), dbl_repr(link.name))
+        
+        if self.runtime_flag.contains(RuntimeFlag.HASLDT):
+            print
+            print "ldts @ldt, %i" % len(self.ldt)
+            i = 0
+            start = 4
+            
+            for sequence in self.ldt:
+                print "word @ldt+%i,%i" % (i, len(sequence))
+                i += 1
+                
+                j = start
+                
+                for ldt in sequence:
+                    print "ext @ldt+%i, %s, %s" % (j, hex(ldt.sig),
+                        dbl_repr(ldt.name))
+                    size = 4 + len(ldt.name) + 1
+                    if size % 4 != 0:
+                        size += 4 - (size % 4)
+                    j += size
+                
+                if i % 4 == 1:
+                    start += 4
+        
+        print
+        print "source %s" % dbl_repr(self.path)
 
 
 class RuntimeFlag:
@@ -498,6 +574,8 @@ class Link:
         self.desc_number = read_OP(f)
         self.sig = read_W(f)       # unsigned for hashes
         self.name = read_C(f)
+        
+        return self
     
     def __repr__(self):
     
@@ -523,6 +601,8 @@ class LDT:
     
         self.sig = _read(f, ">I")   # unsigned for hashes
         self.name = read_C(f)
+        
+        return self
     
     def __repr__(self):
     
@@ -532,3 +612,61 @@ class LDT:
     
         _write(f, ">I", self.sig)
         write_C(f, self.name)
+        
+        # Pad to a word boundary if necessary.
+        remainder = len(self.name) % 4
+        if remainder != 0:
+            f.write("\x00" * (4 - remainder))
+
+
+class ExceptionInfo:
+
+    def __init__(self, offset = 0, p1 = 0, p2 = 0, id = -1, nlab_ne = 0,
+                       pcs = None, iwild = -1):
+    
+        self.offset = offset
+        self.p1 = p1
+        self.p2 = p2
+        
+        if id != -1:
+            self.desc = id
+        else:
+            self.desc = -1
+        
+        if pcs:
+            self.pcs = pcs
+        else:
+            self.pcs = []
+        
+        if iwild != -1:
+            self.pc = iwild
+        else:
+            self.pc = -1
+    
+    def read(self, f):
+    
+        self.offset = read_OP(f)
+        self.p1 = read_OP(f)
+        self.p2 = read_OP(f)
+        
+        id = read_OP(f)
+        if id != -1:
+            self.desc = id
+        else:
+            self.desc = -1
+        
+        nlab_ne = read_OP(f)
+        self.nlab = nlab_ne & 0xffff
+        self.ne = nlab_ne >> 16
+        
+        self.pcs = []
+        i = 0
+        while i < self.nlab:
+            name = read_C(f)
+            pc = read_OP(f)
+            self.pcs.append((name, pc))
+            i += 1
+        
+        self.pc = read_OP(f)
+        
+        return self

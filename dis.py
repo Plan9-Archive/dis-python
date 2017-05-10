@@ -407,19 +407,18 @@ class RuntimeFlag:
 
 class Type:
 
-    def __init__(self, desc_number = 0, size = 0, number_ptrs = 0, array = ""):
+    def __init__(self, desc_number = 0, size = 0, array = ""):
     
         self.desc_number = desc_number
         self.size = size
-        self.number_ptrs = number_ptrs
         self.array = array
     
     def read(self, f):
     
         self.desc_number = read_OP(f)
         self.size = read_OP(f)
-        self.number_ptrs = read_OP(f)
-        self.array = f.read(self.number_ptrs)
+        number_ptrs = read_OP(f)
+        self.array = f.read(number_ptrs)
         
         return self
     
@@ -445,7 +444,7 @@ class Type:
     
         write_OP(f, self.desc_number)
         write_OP(f, self.size)
-        write_OP(f, self.number_ptrs)
+        write_OP(f, len(self.array))
         f.write(self.array)
 
 
@@ -612,11 +611,6 @@ class LDT:
     
         _write(f, ">I", self.sig)
         write_C(f, self.name)
-        
-        # Pad to a word boundary if necessary.
-        remainder = len(self.name) % 4
-        if remainder != 0:
-            f.write("\x00" * (4 - remainder))
 
 
 class ExceptionInfo:

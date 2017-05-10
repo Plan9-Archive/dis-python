@@ -349,8 +349,8 @@ class Type:
     
     def __repr__(self):
     
-        return "Type(desc=%i, size=%i, ptrs=%i)" % (self.desc_number,
-            self.size, self.number_ptrs)
+        return "Type(desc=%i, size=%i, ptrs=%i, array=%s)" % (self.desc_number,
+            self.size, self.number_ptrs, repr(self.array))
     
     def is_pointer(self, address):
     

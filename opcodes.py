@@ -158,7 +158,7 @@ class Operand:
         write_OP(f, self.value)
 
 class Immediate(Operand):
-    str_pattern = "$%x"
+    str_pattern = "$0x%x"
     middle_address_mode = 0x40
     address_mode = 0x02
 
@@ -193,7 +193,7 @@ class DoubleShortOffset(Operand):
         self.annotation = annotation
     
     def __str__(self):
-        return self.str_pattern % (self.offset0, self.offset1)
+        return self.str_pattern % (self.offset1, self.offset0)
     
     def write(self, f):
         write_OP(f, self.offset0 & 0xffff)

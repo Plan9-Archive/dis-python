@@ -1,6 +1,12 @@
+Opcode definitions
+------------------
+
 Opcodes are defined in include/isa.h, limbo/optab.c and libinterp/xec.c.
 
 consc is documented but does not exist in the opcode definitions.
+
+Function signatures
+-------------------
 
 Function signatures will be output by the Limbo compiler if you pass it the
 "-D S" debug option.
@@ -45,3 +51,14 @@ endianness of the resulting value:
 The rtsign and idsign functions in the limbo/types.c file are responsible for
 creating a signature for a function. The sigkind array contains the characters
 used for each type of object that will be serialised.
+
+Operands
+--------
+
+The double indirect operands SO(SO(fp)) and SO(SO(mp)) are represented by two
+offsets in the encoded instruction. The first represents the "inner" offset,
+the second the "outer" offset. For example:
+
+    10(20(fp)) is represented as 20, 10 in the instruction.
+
+This was discovered by running the Limbo compiler with the -S option.

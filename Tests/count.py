@@ -61,14 +61,14 @@ if __name__ == "__main__":
     ]
     
     d.types = [
-        dis.Type(0, 16, 1, "\xf0"),
-        dis.Type(1, 40, 2, "\x00\x80"),
+        dis.Type(0, 16, "\xf0"),
+        dis.Type(1, 40, "\x00\x80"),
         # Type 2 is the stack frame type for the init functon (see below) and
         # the entry type for the program (see above),
         # 56 bytes (14 words) in size:
         # pointer bitmap: 0 0 0 0 0 0 0 0 | 1 1 0 1 0 0 [0 0]
         # pointers at offsets 32, 36 and 44
-        dis.Type(2, 56, 2, "\x00\xd0")
+        dis.Type(2, 56, "\x00\xd0")
         ]
     
     d.data = {

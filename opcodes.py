@@ -82,9 +82,11 @@ class Instruction:
         # No operand for 0x03.
         
         elif operand == 0x04:
-            operand = DoubleShortOffsetMP(read_OP(f), read_OP(f), "SO(SO(MP))")
+            inner, outer = read_OP(f), read_OP(f)
+            operand = DoubleShortOffsetMP(outer, inner, "SO(SO(MP))")
         elif operand == 0x05:
-            operand = DoubleShortOffsetFP(read_OP(f), read_OP(f), "SO(SO(FP))")
+            inner, outer = read_OP(f), read_OP(f)
+            operand = DoubleShortOffsetFP(outer, inner, "SO(SO(FP))")
         else:
             operand = NoOperand()
         
@@ -186,10 +188,10 @@ class ShortOffsetFP(ShortOffset):
 
 class DoubleShortOffset(Operand):
 
-    def __init__(self, offset0, offset1, annotation = None):
+    def __init__(self, outer, inner, annotation = None):
     
-        self.offset0 = offset0
-        self.offset1 = offset1
+        self.offset0 = inner
+        self.offset1 = outer
         self.annotation = annotation
     
     def __str__(self):

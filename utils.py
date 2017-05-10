@@ -148,6 +148,11 @@ def hash_signature(function_signature):
     # Sum the values to produce a 32-bit value.
     return sum(values)
 
+# Miscellaneous
+
+def dbl_repr(obj):
+
+    return repr(obj).replace("'", '"')
 
 # Currently unused:
 

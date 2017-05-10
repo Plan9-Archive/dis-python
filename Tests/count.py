@@ -39,7 +39,7 @@ if __name__ == "__main__":
     # }
     
     d.code = [
-    opcodes.load(LOmp(0), Imm(0), LOfp(44)),    # "$Sys", ldt[0] -> module
+    opcodes.load(LOmp(0), Imm(0), LOfp(44)),    # "$Sys", ldt[0] -> module pointer
     
     opcodes.frame(Imm(1), LOfp(52)),            # types[1] -> new_frame1 (ptr)
     opcodes.movp(LOmp(8), SOSOfp(32, 52)),      # "Counting..." ->
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     
     opcodes.frame(Imm(1), LOfp(48)),            # types[1] -> new_frame2 (ptr)
     opcodes.movp(LOmp(4), SOSOfp(32, 48)),      # "%d\n" -> 
-    opcodes.movw(LOfp(40), SOSOfp(36, 48)),
+    opcodes.movw(LOfp(40), SOSOfp(36, 48)),     # i      ->
     opcodes.lea(LOfp(52), SOSOfp(16, 48)),      # new_frame1 ->
     opcodes.mcall(LOfp(48), Imm(0), LOfp(44)),  # new_frame2, ldt[0]
     
@@ -63,14 +63,15 @@ if __name__ == "__main__":
     d.types = [
         dis.Type(0, 16, 1, "\xf0"),
         dis.Type(1, 40, 2, "\x00\x80"),
-        # Type 2 is the stack frame type (see below), entry type (see above),
+        # Type 2 is the stack frame type for the init functon (see below) and
+        # the entry type for the program (see above),
         # 56 bytes (14 words) in size:
         # pointer bitmap: 0 0 0 0 0 0 0 0 | 1 1 0 1 0 0 [0 0]
+        # pointers at offsets 32, 36 and 44
         dis.Type(2, 56, 2, "\x00\xd0")
         ]
     
     d.data = {
-        #       code size
         0: dis.Data(0, 0, 0x03, array = "$Sys"),
         4: dis.Data(0, 4, 0x03, array = "%d\n"),
         8: dis.Data(0, 8, 0x03, array = "Counting...\n"),

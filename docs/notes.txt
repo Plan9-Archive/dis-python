@@ -62,3 +62,116 @@ the second the "outer" offset. For example:
     10(20(fp)) is represented as 20, 10 in the instruction.
 
 This was discovered by running the Limbo compiler with the -S option.
+
+Register allocation and stack frames
+------------------------------------
+
+The following program was compiled using the Limbo compiler:
+
+    implement count;
+
+    include "sys.m";
+    include "draw.m";
+
+    count: module
+    {
+        init: fn(ctxt: ref Draw->Context, args: list of string);
+    };
+
+    init(ctxt: ref Draw->Context, args: list of string)
+    {
+        sys := load Sys Sys->PATH;
+        sys->print("Counting...\n");
+        for (i := 0; i < 20; i++)
+            sys->print("%d\n", i);
+    }
+
+It was disassembled to produce this listing:
+
+    0x0: load 0(mp), $0x0, 44(fp)
+    0x1: frame $0x1, 52(fp)
+    0x2: movp 8(mp), 32(52(fp))
+    0x3: lea 48(fp), 16(52(fp))
+    0x4: mcall 52(fp), $0x0, 44(fp)
+    0x5: movw $0x0, 40(fp)
+    0x6: blew $0x7b, 40(fp), $0xe
+    0x7: frame $0x1, 48(fp)
+    0x8: movp 4(mp), 32(48(fp))
+    0x9: movw 40(fp), 36(48(fp))
+    0xa: lea 52(fp), 16(48(fp))
+    0xb: mcall 48(fp), $0x0, 44(fp)
+    0xc: addw $0x1, 40(fp)
+    0xd: jmp $0x6
+    0xe: ret
+ 
+    entry 0x0, 2
+    desc $0x0, 16, "f0"
+    desc $0x1, 40, "0080"
+    desc $0x2, 56, "00d0"
+
+    var @mp, 16
+    string @mp+0, "$Sys"
+    string @mp+4, "%d\n"
+    string @mp+8, "Counting...\n"
+
+    module count
+
+    link 0x0, 2, 0x4244b354, "init"
+
+    ldts @ldt, 1
+    word @ldt+0,1
+    ext @ldt+4, 0xac849033, "print"
+
+    source "/usr/david/count.b"
+
+The entry line gives the initial PC value and the type (2) containing stack
+frame information:
+
+    desc $0x2, 56, "00d0"
+
+This type contains 56 bytes and the pointer bitmap indicates that offsets 32,
+36 and 44 are pointers:
+
+    0   4   8  12  16  20  24  28 | 32  36  40  44  48  52  56  60
+                                     *   *       *
+    0   0   0   0   0   0   0   0    1   1   0   1   0   0   0   0  0x00d0
+
+The code starts at pc=0x0 where it loads a module:
+
+    0x0: load 0(mp), $0x0, 44(fp)   ; path, linkage descriptor, destination
+
+In this instruction, the path refers to this item in the data section:
+
+    string @mp+0, "$Sys"
+
+The linkage descriptor refers to the first sequence of items in the ldts area
+(there is only one):
+
+    word @ldt+0,1
+    ext @ldt+4, 0xac849033, "print"
+
+The result is placed in the pointer at 44(fp) which represents the sys
+variable.
+
+A stack frame is created so that a function can be called:
+
+    0x1: frame $0x1, 52(fp)     ; type index, destination
+
+This specifies the type (1) containing stack frame information:
+
+    desc $0x1, 40, "0080"
+
+In this frame, only offset 32 is a pointer. The result of the frame instruction
+is held in 52(fp) which should be a pointer, but apparently isn't recorded as
+one.
+
+The next instruction copies the location of a string into the new frame at an
+address in the frame that is marked as a pointer:
+
+    0x2: movp 8(mp), 32(52(fp))     ; source, destination
+
+    string @mp+8, "Counting...\n"
+
+
+
+    0x3: lea 48(fp), 16(52(fp))
